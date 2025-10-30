@@ -26,16 +26,28 @@ public class MyHostApduServiceSimple extends HostApduService {
     private static final String TAG = "HceBeginnerApp";
     // ISO-DEP command HEADER for selecting an AID.
     // Format: [Class | Instruction | Parameter 1 | Parameter 2]
-    private static final byte[] SELECT_APPLICATION_APDU = hexStringToByteArray("00a4040006f2233445566700");
-    private static final String GET_DATA_APDU_HEADER = "00CA0000";
-    private static final String PUT_DATA_APDU_HEADER = "00DA0000";
-    // "OK" status word sent in response to SELECT AID command (0x9000)
-    private static final byte[] SELECT_OK_SW = hexStringToByteArray("9000");
-    // "UNKNOWN" status word sent in response to invalid APDU command (0x0000)
-    private static final byte[] UNKNOWN_CMD_SW = hexStringToByteArray("0000");
+//    private static final byte[] SELECT_APPLICATION_APDU = hexStringToByteArray("00a4040006f2233445566700");
+//    private static final String GET_DATA_APDU_HEADER = "00CA0000";
+//    private static final String PUT_DATA_APDU_HEADER = "00DA0000";
+//    // "OK" status word sent in response to SELECT AID command (0x9000)
+//    private static final byte[] SELECT_OK_SW = hexStringToByteArray("9000");
+//    // "UNKNOWN" status word sent in response to invalid APDU command (0x0000)
+//    private static final byte[] UNKNOWN_CMD_SW = hexStringToByteArray("0000");
 
-    private byte[] fileContent01 = "HCE Beginner App 1".getBytes(StandardCharsets.UTF_8);
-    private byte[] fileContent02 = "HCE Beginner App 2".getBytes(StandardCharsets.UTF_8);
+
+    // --- APDU COMMANDS AND HEADERS ---
+    private static final byte[] SELECT_APPLICATION_APDU = hexStringToByteArray("00a4040006f2233445566700");
+    private static final byte[] GET_DATA_APDU_HEADER = hexStringToByteArray("00CA0000");
+    private static final byte[] PUT_DATA_APDU_HEADER = hexStringToByteArray("00DA0000");
+
+    // --- APDU STATUS WORDS (SW) ---
+    private static final byte[] SW_OK = hexStringToByteArray("9000"); // Success
+    private static final byte[] SW_UNKNOWN_INSTRUCTION = hexStringToByteArray("6D00"); // Instruction not supported
+    private static final byte[] SW_WRONG_LENGTH = hexStringToByteArray("6700"); // Wrong length
+
+
+    private byte[] fileContent01 = "Terminal partners".getBytes(StandardCharsets.UTF_8);
+    private byte[] fileContent02 = "Let's make a deal!".getBytes(StandardCharsets.UTF_8);
     private byte[] fileContentUnknown = "HCE Beginner App Unknown".getBytes(StandardCharsets.UTF_8);
 
     /**
@@ -47,6 +59,7 @@ public class MyHostApduServiceSimple extends HostApduService {
      */
     @Override
     public void onDeactivated(int reason) {
+        Log.d(TAG, "onDeactivated() reason: " + reason);
     }
 
     /**
@@ -71,117 +84,116 @@ public class MyHostApduServiceSimple extends HostApduService {
 
     @Override
     public byte[] processCommandApdu(byte[] commandApdu, Bundle extras) {
-        // The following flow is based on Appendix E "Example of Mapping Version 2.0 Command Flow"
-        // in the NFC Forum specification
         Log.i(TAG, "Received APDU: " + byteArrayToHexString(commandApdu));
 
-        // First command: Application select (Section 5.5.2 in NFC Forum spec)
+        // 1. Handle SELECT Application APDU
         if (Arrays.equals(SELECT_APPLICATION_APDU, commandApdu)) {
-            Log.i(TAG, "This is: 01 SELECT_APPLICATION_APDU");
-            return SELECT_OK_SW;
+            Log.i(TAG, "APDU matches SELECT_APPLICATION_APDU. Sending OK.");
+            return SW_OK;
+        }
 
-        // Second command: GetData command, here returning any data and not from file01
-        } else if (arraysStartWith(commandApdu, hexStringToByteArray(GET_DATA_APDU_HEADER))) {
-            Log.i(TAG, "This is: 02 GET_DATA_APDU");
+        // 2. Handle GET DATA APDU
+        if (arraysStartWith(commandApdu, GET_DATA_APDU_HEADER)) {
+            Log.i(TAG, "APDU is a GET_DATA command.");
+            // Your ReadFragment sends: 00 CA 00 00 01 01 00 (8 bytes total)
+            // Lc (at index 4) = 0x01. This is the length of the data field.
+            // The data field itself is just the file number (e.g., 0x01).
 
-            // get the file number from commandApdu
-            int fileNumber;
-            byte[] fileContent;
-            if (commandApdu.length == 7) {
-                fileNumber = (int) commandApdu[5];
-                if (fileNumber == 1) {
-                    fileContent = fileContent01.clone();
-                } else if (fileNumber == 2) {
-                    fileContent = fileContent02.clone();
-                } else {
-                    fileContent = fileContentUnknown.clone();
-                }
-            } else {
-                fileContent = "Unknown Request".getBytes(StandardCharsets.UTF_8);
+            // Check if Lc is exactly 1 (for the file number)
+            if (commandApdu[4] != (byte) 0x01) {
+                Log.e(TAG, "GET_DATA error: Lc is not 1.");
+                return SW_WRONG_LENGTH;
             }
-            byte[] response = new byte[fileContent.length + SELECT_OK_SW.length];
+
+            int fileNumber = commandApdu[5];
+            byte[] fileContent;
+
+            if (fileNumber == 1) {
+                fileContent = fileContent01.clone();
+                Log.i(TAG, "File 1 requested.");
+            } else if (fileNumber == 2) {
+                fileContent = fileContent02.clone();
+                Log.i(TAG, "File 2 requested.");
+            } else {
+                fileContent = fileContentUnknown.clone();
+                Log.w(TAG, "Unknown file requested: " + fileNumber);
+            }
+
+            // Respond with [file content] + [status word 9000]
+            byte[] response = new byte[fileContent.length + SW_OK.length];
             System.arraycopy(fileContent, 0, response, 0, fileContent.length);
-            System.arraycopy(SELECT_OK_SW, 0, response, fileContent.length, SELECT_OK_SW.length);
-            Log.i(TAG, "GET_DATA_APDU Our Response: " + byteArrayToHexString(response));
+            System.arraycopy(SW_OK, 0, response, fileContent.length, SW_OK.length);
+            Log.i(TAG, "GET_DATA Response: " + byteArrayToHexString(response));
             return response;
-        // write data to the emulated tag
-        } else if (arraysStartWith(commandApdu, hexStringToByteArray(PUT_DATA_APDU_HEADER))) {
-            Log.i(TAG, "This is: 03 PUT_DATA_APDU");
-            // get the data length and file number from commandApdu
-            int dataLength;
-            int fileNumber;
-            byte[] fileContent;
-            if (commandApdu.length >= 7) {
-                dataLength = (int) commandApdu[4];
-                fileNumber = (int) commandApdu[5];
-                // System.out.println("commandApdu l: " + commandApdu.length + " data l: " + dataLength + " fnr: " + fileNumber);
-                // get the data
-                if (commandApdu.length != (6 + dataLength)) {
-                    return UNKNOWN_CMD_SW;
-                }
-                fileContent = Arrays.copyOfRange(commandApdu, 6, (5 + dataLength));
-                Log.i(TAG,  "fileNr: " + fileNumber +  " content: " + new String(fileContent, StandardCharsets.UTF_8));
-                if (fileNumber == 1) {
-                    fileContent01 = fileContent.clone();
-                } else if (fileNumber == 2) {
-                    fileContent02 = fileContent.clone();
-                } else {
-                    fileContentUnknown = fileContent.clone();
-                }
-            } else {
-                fileContent = "Unknown Request".getBytes(StandardCharsets.UTF_8);
-            }
-            return SELECT_OK_SW;
+        }
 
-            // We're doing something outside our scope
-        } else
-            Log.wtf(TAG, "processCommandApdu() | I don't know what's going on!!!.");
-        //return "Can I help you?".getBytes();
-        return UNKNOWN_CMD_SW;
+        // 3. Handle PUT DATA APDU
+        if (arraysStartWith(commandApdu, PUT_DATA_APDU_HEADER)) {
+            Log.i(TAG, "APDU is a PUT_DATA command.");
+            // Your ReadFragment sends: 00 DA 00 00 Lc [file nr] [data...] 00
+            // Lc (at index 4) = length of [file nr] + [data...]. So data length is Lc - 1.
+
+            int lc = commandApdu[4] & 0xFF; // Length of data field (file nr + content)
+            int fileNumber = commandApdu[5];
+            int contentLength = lc - 1;
+
+            // Basic sanity check
+            if (contentLength < 0 || (commandApdu.length < 6 + contentLength)) {
+                Log.e(TAG, "PUT_DATA error: Malformed APDU. Lc: " + lc + ", APDU length: " + commandApdu.length);
+                return SW_WRONG_LENGTH;
+            }
+
+            byte[] newContent = new byte[contentLength];
+            System.arraycopy(commandApdu, 6, newContent, 0, contentLength);
+
+            Log.i(TAG, "PUT_DATA: fileNr: " + fileNumber + ", content: " + new String(newContent, StandardCharsets.UTF_8));
+
+            if (fileNumber == 1) {
+                fileContent01 = newContent;
+            } else if (fileNumber == 2) {
+                fileContent02 = newContent;
+            } else {
+                fileContentUnknown = newContent;
+            }
+            // A successful write operation returns just the status word
+            return SW_OK;
+        }
+
+        // 4. Handle any other command
+        Log.wtf(TAG, "Unknown APDU command received.");
+        return SW_UNKNOWN_INSTRUCTION;
     }
 
+    // This helper function is correct and does not need changes.
     boolean arraysStartWith(byte[] completeArray, byte[] compareArray) {
+        if (completeArray == null || compareArray == null || completeArray.length < compareArray.length) {
+            return false;
+        }
         int n = compareArray.length;
-        // Log.d(TAG, "completeArray length: " + completeArray.length + " data: " + ByteArrayToHexString(completeArray));
-        // Log.d(TAG, "compareArray  length: " + compareArray.length + " data: " + ByteArrayToHexString(compareArray));
         return ByteBuffer.wrap(completeArray, 0, n).equals(ByteBuffer.wrap(compareArray, 0, n));
     }
 
-    /**
-     * Utility method to convert a byte array to a hexadecimal string.
-     *
-     * @param bytes Bytes to convert
-     * @return String, containing hexadecimal representation.
-     */
+    // Utility methods are correct and do not need changes.
     public static String byteArrayToHexString(byte[] bytes) {
+        if (bytes == null) return "null";
         final char[] hexArray = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
-        char[] hexChars = new char[bytes.length * 2]; // Each byte has two hex characters (nibbles)
+        char[] hexChars = new char[bytes.length * 2];
         int v;
         for (int j = 0; j < bytes.length; j++) {
-            v = bytes[j] & 0xFF; // Cast bytes[j] to int, treating as unsigned value
-            hexChars[j * 2] = hexArray[v >>> 4]; // Select hex character from upper nibble
-            hexChars[j * 2 + 1] = hexArray[v & 0x0F]; // Select hex character from lower nibble
+            v = bytes[j] & 0xFF;
+            hexChars[j * 2] = hexArray[v >>> 4];
+            hexChars[j * 2 + 1] = hexArray[v & 0x0F];
         }
         return new String(hexChars);
     }
 
-    /**
-     * Utility method to convert a hexadecimal string to a byte string.
-     *
-     * <p>Behavior with input strings containing non-hexadecimal characters is undefined.
-     *
-     * @param s String containing hexadecimal characters to convert
-     * @return Byte array generated from input
-     * @throws IllegalArgumentException if input length is incorrect
-     */
     public static byte[] hexStringToByteArray(String s) throws IllegalArgumentException {
         int len = s.length();
         if (len % 2 == 1) {
             throw new IllegalArgumentException("Hex string must have even number of characters");
         }
-        byte[] data = new byte[len / 2]; // Allocate 1 byte per 2 hex characters
+        byte[] data = new byte[len / 2];
         for (int i = 0; i < len; i += 2) {
-            // Convert each character into a integer (base-16), then bit-shift into place
             data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4)
                     + Character.digit(s.charAt(i + 1), 16));
         }

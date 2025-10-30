@@ -34,6 +34,7 @@ import androidx.fragment.app.Fragment;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * A simple {@link Fragment} subclass.
@@ -358,7 +359,7 @@ public class ReadFragment extends Fragment implements NfcAdapter.ReaderCallback 
 
     private void writeToUiFinal(final TextView textView) {
         if (textView == (TextView) readResult) {
-            getActivity().runOnUiThread(new Runnable() {
+            requireActivity().runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
                     textView.setText(outputString);
@@ -375,7 +376,7 @@ public class ReadFragment extends Fragment implements NfcAdapter.ReaderCallback 
      */
 
     private void setLoadingLayoutVisibility(boolean isVisible) {
-        getActivity().runOnUiThread(() -> {
+        requireActivity().runOnUiThread(() -> {
             if (isVisible) {
                 loadingLayout.setVisibility(View.VISIBLE);
             } else {
@@ -419,6 +420,6 @@ public class ReadFragment extends Fragment implements NfcAdapter.ReaderCallback 
         super.onPause();
         if (mNfcAdapter != null)
             mNfcAdapter.disableReaderMode(this.getActivity());
+            // mNfcAdapter.disableForegroundDispatch(this.getActivity());
     }
-
 }

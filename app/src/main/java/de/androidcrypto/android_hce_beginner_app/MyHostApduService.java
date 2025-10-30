@@ -160,13 +160,11 @@ public class MyHostApduService extends HostApduService {
             (byte)0x0f  //  Le field
     };
 
-
-
-    private byte[] NDEF_URI_BYTES = getNdefMessage("Hello world!");
-    private byte[] NDEF_URI_LEN = BigInteger.valueOf(NDEF_URI_BYTES.length).toByteArray();
+    private final byte[] NDEF_URI_BYTES = getNdefMessage("Hello world!");
+    private final byte[] NDEF_URI_LEN = BigInteger.valueOf(NDEF_URI_BYTES.length).toByteArray();
 
     private byte[] getNdefMessage(String ndefData) {
-        if (ndefData.length() == 0) {
+        if (ndefData.isEmpty()) {
             return new byte[0];
         }
         NdefMessage ndefMessage;
@@ -261,7 +259,20 @@ public class MyHostApduService extends HostApduService {
             System.arraycopy(SELECT_OK_SW, 0, response, start.length + NDEF_URI_LEN.length, SELECT_OK_SW.length);
             */
             // new as in Underwindfall
-            byte[] response = new byte[NDEF_URI_LEN.length + SELECT_OK_SW.length];
+
+            // Get the total length of the NDEF message
+            int ndefMessageLength = NDEF_URI_BYTES.length;
+
+            // The NLEN field is 2 bytes long (big-endian)
+            byte[] nlen = new byte[] {
+                    (byte) (ndefMessageLength >> 8),
+                    (byte) (ndefMessageLength & 0xFF)
+            };
+
+
+            // byte[] response = new byte[NDEF_URI_LEN.length + SELECT_OK_SW.length];
+            // The response is the NLEN data + status word
+            byte[] response = ConcatArrays(nlen, SELECT_OK_SW);
             System.arraycopy(NDEF_URI_LEN, 0, response, 0, NDEF_URI_LEN.length);
             System.arraycopy(SELECT_OK_SW, 0, response, NDEF_URI_LEN.length, SELECT_OK_SW.length);
             Log.i(TAG, "NDEF_READ_BINARY_NLEN triggered. Our Response: " + ByteArrayToHexString(response));
@@ -297,14 +308,15 @@ public class MyHostApduService extends HostApduService {
             toast.show();
             READ_CAPABILITY_CONTAINER_CHECK = false;
             return response;
+
         // We're doing something outside our scope
-        } else
-            Log.wtf(TAG, "processCommandApdu() | I don't know what's going on!!!.");
-            //return "Can I help you?".getBytes();
-            return UNKNOWN_CMD_SW;
         }
-
-
+//        else {
+                Log.wtf(TAG, "processCommandApdu() | I don't know what's going on!!!.");
+                //return "Can I help you?".getBytes();
+                return UNKNOWN_CMD_SW;
+//            }
+        }
 
         /**
          * Build APDU for SELECT AID command. This command indicates which service a reader is
